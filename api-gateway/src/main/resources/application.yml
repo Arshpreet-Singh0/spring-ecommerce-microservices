@@ -1,0 +1,20 @@
+jwt:
+  secretKey : dfihhuawffiubeiwbwiywiusbciwdw
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: user-service
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/api/v1/user/**
+          filters:
+            - StripPrefix=2
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
