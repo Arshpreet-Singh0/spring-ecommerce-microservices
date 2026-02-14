@@ -11,11 +11,18 @@ import java.util.List;
 @RequestMapping("/search")
 @RequiredArgsConstructor
 public class SearchController {
+    private final SearchService searchService;
 
-//    private final SearchService searchService;
-//
-//    @GetMapping
-//    public List<ProductSearchDocument> search(@RequestParam String q) {
-////        return searchService.searchByName(q);
-//    }
+    @GetMapping("/products")
+    public List<ProductSearchDocument> searchProducts(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Double minPrice,
+            @RequestParam(required = false) Double maxPrice,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+
+        return searchService.searchProducts(q, minPrice, maxPrice, page, size);
+    }
+
 }

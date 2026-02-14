@@ -1,6 +1,6 @@
 package com.ecommerce.search_service.consumer;
 
-import com.ecommerce.product_service.event.ProductCreatedEvent;
+import com.ecommerce.inventory_service.event.InventoryUpdatedEvent;
 import com.ecommerce.search_service.services.SearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,12 +10,11 @@ import org.springframework.stereotype.Service;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class ProductKafkaConsumer {
-
+public class InventoryKafkaConsumer {
     private final SearchService searchService;
-    @KafkaListener(topics = "product-created-topic")
-    public void listen(ProductCreatedEvent productCreatedEvent) {
-        log.info("Received event: {}", productCreatedEvent);
-        searchService.indexProduct(productCreatedEvent);
+    @KafkaListener(topics = "inventory-updated-topic")
+    public void listen(InventoryUpdatedEvent event) {
+        log.info("Received event: {}", event);
+        searchService.updateInventory(event);
     }
 }

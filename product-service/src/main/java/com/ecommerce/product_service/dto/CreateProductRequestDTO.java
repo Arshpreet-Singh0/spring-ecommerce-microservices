@@ -42,6 +42,9 @@ public class CreateProductRequestDTO {
     @NotBlank
     private String brand;
 
+    @NotNull(message = "totalQuantity is required")
+    private Integer totalQuantity;
+
     @NotEmpty
     private List<@NotBlank String> imageUrls;
 }

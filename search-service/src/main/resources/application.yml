@@ -14,7 +14,7 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json:
-          trusted.packages: com.ecommerce.product_service.*
+          trusted.packages: com.ecommerce.*
 
 server:
   port: 9060
