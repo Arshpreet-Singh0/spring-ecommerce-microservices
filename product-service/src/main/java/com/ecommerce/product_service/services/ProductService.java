@@ -10,14 +10,20 @@ import com.ecommerce.product_service.event.ProductCreatedEvent;
 import com.ecommerce.product_service.exceptions.ProductSkuAlreadyExistsException;
 import com.ecommerce.product_service.repositories.ProductRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProductService {
 
     private final ProductRepository productRepository;
@@ -46,7 +52,7 @@ public class ProductService {
         return modelMapper.map(savedProduct, ProductResponseDTO.class);
     }
 
-    @Transactional
+    @Modifying
     public ProductResponseDTO update(Long productId, UpdateProductRequestDTO request) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -55,5 +61,14 @@ public class ProductService {
 
         Product updatedProduct = productRepository.save(product);
         return modelMapper.map(updatedProduct, ProductResponseDTO.class);
+    }
+
+    public List<ProductResponseDTO> findAllByIds(List<Long> ids) {
+        List<Product> products = productRepository.findAllById(ids);
+        log.info("Fetching Products for product id: {}", ids);
+
+        return products
+                .stream().map(p-> modelMapper.map(p, ProductResponseDTO.class))
+                .collect(Collectors.toList());
     }
 }

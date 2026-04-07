@@ -1,8 +1,8 @@
-package com.ecommerce.product_service.configs;
+package com.ecommerce.order_service.config;
 
-import com.ecommerce.product_service.filters.JwtAuthFilter;
-import com.ecommerce.product_service.security.JwtAccessDeniedHandler;
-import com.ecommerce.product_service.security.JwtAuthenticationEntryPoint;
+import com.ecommerce.order_service.filters.JwtAuthFilter;
+import com.ecommerce.order_service.security.JwtAccessDeniedHandler;
+import com.ecommerce.order_service.security.JwtAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,8 +15,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import java.lang.reflect.Method;
-
 @EnableWebSecurity
 @Configuration
 @RequiredArgsConstructor
@@ -24,7 +22,7 @@ public class WebSecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
-    private final JwtAccessDeniedHandler  jwtAccessDeniedHandler;
+    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -38,8 +36,6 @@ public class WebSecurityConfig {
                         .accessDeniedHandler(jwtAccessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/product/get").permitAll()
-                        .requestMatchers("/product").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

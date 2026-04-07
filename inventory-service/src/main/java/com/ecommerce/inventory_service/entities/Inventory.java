@@ -36,6 +36,9 @@ public class Inventory {
     @Column(nullable = false)
     private Integer availableQuantity;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     @CreationTimestamp
     @Column(updatable = false)
@@ -49,4 +52,5 @@ public class Inventory {
     private void calculateAvailability() {
         this.availableQuantity = this.totalQuantity - this.reservedQuantity;
     }
+
 }

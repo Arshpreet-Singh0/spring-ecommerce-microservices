@@ -62,4 +62,5 @@ public class InventoryService {
 
         kafkaTemplate.send(KAFKA_INVENTORY_UPDATED_TOPIC, inventory.getSku(), event);
     }
+
 }
