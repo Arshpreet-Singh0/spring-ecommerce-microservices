@@ -70,7 +70,7 @@ public class InventoryReservationService {
                     .quantity(item.getQty())
                     .orderId(dto.getOrderId())
                     .status(Status.RESERVED)
-                    .expiresAt(LocalDateTime.now().plusMinutes(2))
+                    .expiresAt(LocalDateTime.now().plusMinutes(5))
                     .build();
 
             reservations.add(reservation);
