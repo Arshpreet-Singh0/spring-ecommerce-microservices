@@ -2,8 +2,8 @@ package com.ecommerce.search_service.services;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.UpdateResponse;
-import com.ecommerce.inventory_service.event.InventoryUpdatedEvent;
-import com.ecommerce.product_service.event.ProductCreatedEvent;
+import com.ecommerce.search_service.event.InventoryUpdatedEvent;
+import com.ecommerce.search_service.event.ProductCreatedEvent;
 import com.ecommerce.search_service.documents.ProductSearchDocument;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
@@ -13,7 +13,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import co.elastic.clients.json.JsonData;
 
 @Service
 @RequiredArgsConstructor
@@ -68,17 +67,18 @@ public class SearchService {
 
                                 // Price filter
                                 if (minPrice != null || maxPrice != null) {
-                                    b.filter(f -> f.range(r -> {
-                                        r.field("price");
+                                    // ES client 9.x: typed (number) range query
+                                    b.filter(f -> f.range(r -> r.number(n -> {
+                                        n.field("price");
                                         if (minPrice != null) {
-                                            r.gte(JsonData.of(minPrice));
+                                            n.gte(minPrice);
                                         }
 
                                         if (maxPrice != null) {
-                                            r.lte(JsonData.of(maxPrice));
+                                            n.lte(maxPrice);
                                         }
-                                        return r;
-                                    }));
+                                        return n;
+                                    })));
                                 }
 
                                 return b;

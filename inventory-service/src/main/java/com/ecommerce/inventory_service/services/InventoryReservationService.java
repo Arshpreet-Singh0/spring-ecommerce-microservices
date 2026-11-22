@@ -4,6 +4,8 @@ import com.ecommerce.inventory_service.dto.ReserveInventoryDTO;
 import com.ecommerce.inventory_service.entities.Inventory;
 import com.ecommerce.inventory_service.entities.InventoryReservation;
 import com.ecommerce.inventory_service.entities.enums.Status;
+import com.ecommerce.inventory_service.exceptions.InsufficientStockException;
+import com.ecommerce.inventory_service.exceptions.SkuNotFoundException;
 import com.ecommerce.inventory_service.repositories.InventoryRepository;
 import com.ecommerce.inventory_service.repositories.InventoryReservationRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,15 @@ public class InventoryReservationService {
     @Transactional
     public void reserveInventory(ReserveInventoryDTO dto) {
 
+        // 0. Idempotency guard: order-service may retry a FAILED order (e.g. after a timeout
+        //    where our reservation actually committed). An order that already holds an active
+        //    reservation must not reserve stock twice.
+        if (inventoryReservationRepository.existsByOrderIdAndStatusIn(
+                dto.getOrderId(), List.of(Status.RESERVED, Status.CONFIRMED))) {
+            log.info("Order {} already has an active reservation, skipping", dto.getOrderId());
+            return;
+        }
+
         // 1. Extract SKUs
         List<String> skus = dto.getItems()
                 .stream()
@@ -46,11 +57,12 @@ public class InventoryReservationService {
             Inventory inventory = inventoryMap.get(item.getSku());
 
             if (inventory == null) {
-                throw new RuntimeException("SKU not found: " + item.getSku());
+                throw new SkuNotFoundException(item.getSku());
             }
 
             if (inventory.getAvailableQuantity() < item.getQty()) {
-                throw new RuntimeException("Insufficient inventory for SKU: " + item.getSku());
+                throw new InsufficientStockException(
+                        item.getSku(), item.getQty(), inventory.getAvailableQuantity());
             }
         }
 

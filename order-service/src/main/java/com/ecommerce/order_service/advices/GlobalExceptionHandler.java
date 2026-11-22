@@ -72,7 +72,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleInventoryReservationException(InventoryReservationException ex) {
         ApiError apiError = ApiError.builder()
                 .message(ex.getLocalizedMessage())
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .status(ex.getStatus())
                 .build();
 
         return buildErrorResponseEntity(apiError);

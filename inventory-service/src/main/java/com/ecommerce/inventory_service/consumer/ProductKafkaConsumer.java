@@ -1,7 +1,7 @@
 package com.ecommerce.inventory_service.consumer;
 
 import com.ecommerce.inventory_service.services.InventoryService;
-import com.ecommerce.product_service.event.ProductCreatedEvent;
+import com.ecommerce.inventory_service.event.ProductCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;

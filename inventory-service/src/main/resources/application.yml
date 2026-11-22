@@ -7,12 +7,15 @@ spring:
     bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      properties:
+        spring.json.type.mapping: inventoryUpdated:com.ecommerce.inventory_service.event.InventoryUpdatedEvent
     consumer:
       auto-offset-reset: latest
       group-id: ${spring.application.name}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
       properties:
-        spring.json:
-          trusted.packages: com.ecommerce.product_service.*
+        # Logical type ids (set by producers) -> this service's own event classes
+        spring.json.type.mapping: productCreated:com.ecommerce.inventory_service.event.ProductCreatedEvent
+        spring.json.trusted.packages: com.ecommerce.inventory_service.event

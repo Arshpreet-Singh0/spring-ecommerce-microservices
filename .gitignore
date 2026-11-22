@@ -2,3 +2,11 @@
 .idea/
 *.iml
 .DS_Store
+
+tasks.md
+docs/
+# Maven build output
+target/
+
+# Spring Initializr leftovers
+HELP.md

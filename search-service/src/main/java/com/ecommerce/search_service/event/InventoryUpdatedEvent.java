@@ -1,4 +1,4 @@
-package com.ecommerce.inventory_service.event;
+package com.ecommerce.search_service.event;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

@@ -11,10 +11,11 @@ spring:
     consumer:
       group-id: ${spring.application.name}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
       properties:
-        spring.json:
-          trusted.packages: com.ecommerce.*
+        # Logical type ids (set by producers) -> this service's own event classes
+        spring.json.type.mapping: productCreated:com.ecommerce.search_service.event.ProductCreatedEvent,inventoryUpdated:com.ecommerce.search_service.event.InventoryUpdatedEvent
+        spring.json.trusted.packages: com.ecommerce.search_service.event
 
 server:
   port: 9060

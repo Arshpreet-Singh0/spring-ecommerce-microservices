@@ -4,8 +4,9 @@ import com.ecommerce.inventory_service.dto.InventoryResponseDTO;
 import com.ecommerce.inventory_service.dto.InventoryUpdateRequest;
 import com.ecommerce.inventory_service.entities.Inventory;
 import com.ecommerce.inventory_service.event.InventoryUpdatedEvent;
+import com.ecommerce.inventory_service.exceptions.SkuNotFoundException;
 import com.ecommerce.inventory_service.repositories.InventoryRepository;
-import com.ecommerce.product_service.event.ProductCreatedEvent;
+import com.ecommerce.inventory_service.event.ProductCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
@@ -13,8 +14,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.NoSuchElementException;
 
 @Service
 @RequiredArgsConstructor
@@ -28,7 +27,7 @@ public class InventoryService {
 
     public InventoryResponseDTO getInventory(String sku) {
         log.info("Getting inventory for sku {}", sku);
-        Inventory inventory = inventoryRepository.findBySku(sku).orElseThrow(()->new NoSuchElementException("sku not found"));
+        Inventory inventory = inventoryRepository.findBySku(sku).orElseThrow(() -> new SkuNotFoundException(sku));
 
         return modelMapper.map(inventory, InventoryResponseDTO.class);
     }
@@ -51,7 +50,7 @@ public class InventoryService {
     public void updateInventory(InventoryUpdateRequest request) {
 
         Inventory inventory = inventoryRepository.findBySku(request.getSku())
-                .orElseThrow(() -> new RuntimeException("SKU not found"));
+                .orElseThrow(() -> new SkuNotFoundException(request.getSku()));
 
         inventory.setTotalQuantity(request.getQuantity());
 

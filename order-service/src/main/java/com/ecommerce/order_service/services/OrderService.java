@@ -10,12 +10,13 @@ import com.ecommerce.order_service.exceptions.InventoryReservationException;
 import com.ecommerce.order_service.exceptions.PriceMismatchException;
 import com.ecommerce.order_service.exceptions.ProductNotFoundException;
 import com.ecommerce.order_service.repositories.OrderRepository;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -31,45 +32,42 @@ public class OrderService {
     private final InventoryFeignClient inventoryFeignClient;
     private final ModelMapper modelMapper;
 
-    @Transactional
+    /**
+     * Deliberately NOT {@code @Transactional}: see docs/decisions/001-order-failure-state.md.
+     * <p>
+     * Each {@code orderRepository.save(..)} runs in its own short transaction, so:
+     * <ul>
+     *   <li>the order is committed (status CREATED) before inventory is called,</li>
+     *   <li>no DB connection/transaction is held open during the remote Feign call,</li>
+     *   <li>a FAILED status is committed and survives the exception we throw afterwards.</li>
+     * </ul>
+     */
     public OrderResponseDTO createOrder(OrderRequestDTO dto) {
         log.info("OrderService: createOrder {}", dto);
 
-        // 1. Idempotency check
+        // 1. Idempotency check — a replayed request for a non-failed order must not
+        //    hit any downstream service, so short-circuit before fetching products.
         Order existing = getExistingOrder(dto.getIdempotencyKey());
-        Map<Long, ProductDTO> productMap = fetchAndValidateProducts(dto);
-        log.info("Existing {}", existing);
-        log.info("OrderService: createOrder {}", productMap);
-
-        if (existing != null) {
-
-            if (existing.getStatus() == OrderStatus.FAILED) {
-                // retry inventory
-                reserveInventory(existing, dto, productMap);
-                existing.setStatus(OrderStatus.PAYMENT_PENDING);
-                orderRepository.save(existing);
-                return mapToResponse(existing);
-            }
-
+        if (existing != null && existing.getStatus() != OrderStatus.FAILED) {
+            log.info("Idempotent replay for key {}, returning order {}", dto.getIdempotencyKey(), existing.getId());
             return mapToResponse(existing);
         }
 
-        // 2. Fetch & validate products
+        // 2. Retry of a previously FAILED order: reserve again using the PERSISTED items
+        //    (the source of truth), not whatever the replayed request body contains.
+        if (existing != null) {
+            log.info("Retrying inventory reservation for FAILED order {}", existing.getId());
+            Map<Long, ProductDTO> productMap = fetchAndValidateProducts(productIdsOf(existing));
+            return reserveInventoryAndUpdateStatus(existing, productMap);
+        }
 
-        // 3. Build order
-        Order order = buildOrder(dto, productMap);
+        // 3. New order: fetch & validate products, build and persist it (tx #1 commits here)
+        Map<Long, ProductDTO> productMap = fetchAndValidateProducts(
+                dto.getItems().stream().map(OrderItemDTO::getProductId).toList());
+        Order savedOrder = orderRepository.save(buildOrder(dto, productMap));
 
-        log.info("Order {}", order.toString());
-
-        // 4. Save order
-        Order savedOrder = orderRepository.save(order);
-
-        // 5. Reserve inventory
-        reserveInventory(savedOrder, dto, productMap);
-
-        log.info("OrderService: createOrder {}", savedOrder);
-
-        return mapToResponse(savedOrder);
+        // 4. Reserve inventory outside any transaction, then record the outcome (tx #2)
+        return reserveInventoryAndUpdateStatus(savedOrder, productMap);
     }
 
     // ---------------- HELPERS ----------------
@@ -79,11 +77,13 @@ public class OrderService {
         return orderRepository.findByIdempotencyKey(idempotencyKey).orElse(null);
     }
 
-    private Map<Long, ProductDTO> fetchAndValidateProducts(OrderRequestDTO dto) {
+    private List<Long> productIdsOf(Order order) {
+        return order.getItems().stream().map(OrderItem::getProductId).toList();
+    }
 
-        List<Long> productIds = dto.getItems().stream()
-                .map(OrderItemDTO::getProductId)
-                .toList();
+    private Map<Long, ProductDTO> fetchAndValidateProducts(List<Long> requestedIds) {
+
+        List<Long> productIds = requestedIds.stream().distinct().toList();
 
         List<ProductDTO> products = productFeignClient.getProductsByIds(productIds).getData();
 
@@ -103,7 +103,8 @@ public class OrderService {
 
         Order order = new Order();
         order.setUserId(userId);
-        order.setStatus(OrderStatus.PAYMENT_PENDING);
+        // CREATED until inventory confirms the reservation
+        order.setStatus(OrderStatus.CREATED);
         order.setIdempotencyKey(dto.getIdempotencyKey());
 
         BigDecimal total = BigDecimal.ZERO;
@@ -150,17 +151,52 @@ public class OrderService {
         }
     }
 
-    private void reserveInventory(Order order,
-                                  OrderRequestDTO dto,
-                                  Map<Long, ProductDTO> productMap) {
+    /**
+     * Calls inventory-service and persists the outcome. Must be invoked with no surrounding
+     * transaction: the FAILED save below commits immediately, so throwing afterwards does not
+     * roll it back — which is what lets a later request with the same idempotency key retry.
+     */
+    private OrderResponseDTO reserveInventoryAndUpdateStatus(Order order, Map<Long, ProductDTO> productMap) {
+
+        try {
+            inventoryFeignClient.reserve(buildReserveRequest(order, productMap));
+        } catch (Exception e) {
+            log.warn("Inventory reservation failed for order {}: {}", order.getId(), e.getMessage());
+            order.setStatus(OrderStatus.FAILED);
+            orderRepository.save(order);
+            throw toReservationException(order, e);
+        }
+
+        order.setStatus(OrderStatus.PAYMENT_PENDING);
+        Order saved = orderRepository.save(order);
+        log.info("Order {} reserved, status {}", saved.getId(), saved.getStatus());
+        return mapToResponse(saved);
+    }
+
+    /** Translate inventory-service's HTTP status into a meaningful status for our client. */
+    private InventoryReservationException toReservationException(Order order, Exception e) {
+        if (e instanceof FeignException.Conflict) {
+            return new InventoryReservationException(
+                    "Insufficient stock for order " + order.getId(), HttpStatus.CONFLICT);
+        }
+        if (e instanceof FeignException.NotFound) {
+            return new InventoryReservationException(
+                    "Unknown SKU in order " + order.getId(), HttpStatus.NOT_FOUND);
+        }
+        return new InventoryReservationException(
+                "Inventory service unavailable, order " + order.getId() + " can be retried",
+                HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    private ReserveInventoryRequest buildReserveRequest(Order order, Map<Long, ProductDTO> productMap) {
 
         ReserveInventoryRequest reserveDTO = new ReserveInventoryRequest();
         reserveDTO.setOrderId(order.getId().toString());
 
-        List<ReserveInventoryRequest.Item> items = dto.getItems().stream()
+        List<ReserveInventoryRequest.Item> items = order.getItems().stream()
                 .collect(Collectors.groupingBy(
                         item -> productMap.get(item.getProductId()).getSku(),
-                        Collectors.summingInt(OrderItemDTO::getQuantity)
+                        Collectors.summingInt(OrderItem::getQuantity)
                 ))
                 .entrySet()
                 .stream()
@@ -173,14 +209,7 @@ public class OrderService {
                 .toList();
 
         reserveDTO.setItems(items);
-
-        try {
-            inventoryFeignClient.reserve(reserveDTO);
-        } catch (Exception e) {
-            order.setStatus(OrderStatus.FAILED);
-            orderRepository.save(order);
-            throw new InventoryReservationException("Inventory reservation failed");
-        }
+        return reserveDTO;
     }
 
     private OrderResponseDTO mapToResponse(Order order) {
