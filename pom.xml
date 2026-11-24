@@ -38,6 +38,11 @@
         <jjwt.version>0.13.0</jjwt.version>
         <modelmapper.version>3.2.6</modelmapper.version>
         <shedlock.version>7.7.0</shedlock.version>
+
+        <!-- Test / coverage (JaCoCo is not managed by Spring Boot) -->
+        <jacoco.version>0.8.14</jacoco.version>
+        <!-- Coverage gate: minimum line coverage of the business packages (see jacoco check rule) -->
+        <jacoco.line.minimum>0.70</jacoco.line.minimum>
     </properties>
 
     <dependencyManagement>
@@ -111,7 +116,88 @@
                         </excludes>
                     </configuration>
                 </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco.version}</version>
+                    <configuration>
+                        <!-- Unit (Surefire) and integration (Failsafe) runs write to ONE file,
+                             so report/check in `verify` see the combined coverage. -->
+                        <destFile>${project.build.directory}/jacoco.exec</destFile>
+                        <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>prepare-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>prepare-agent-integration</id>
+                            <goals>
+                                <goal>prepare-agent-integration</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>report</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>check</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                            <configuration>
+                                <!-- The gate counts business code only: DTOs, entities, config,
+                                     exceptions and *Application classes are not measured. -->
+                                <includes>
+                                    <include>**/services/**</include>
+                                    <include>**/schedulers/**</include>
+                                    <include>**/consumer/**</include>
+                                </includes>
+                                <rules>
+                                    <rule>
+                                        <element>BUNDLE</element>
+                                        <limits>
+                                            <limit>
+                                                <counter>LINE</counter>
+                                                <value>COVEREDRATIO</value>
+                                                <minimum>${jacoco.line.minimum}</minimum>
+                                            </limit>
+                                        </limits>
+                                    </rule>
+                                </rules>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
+
+        <plugins>
+            <!-- *IT classes run in `integration-test`/`verify` (Testcontainers, needs Docker);
+                 *Test classes stay in Surefire (`mvn test`, no Docker). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
     </build>
 </project>

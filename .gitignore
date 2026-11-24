@@ -13,3 +13,7 @@ HELP.md
 
 # Local secrets (copy .env.example to .env)
 .env
+
+# Local IDE-tool leftovers (only .github/workflows/ is committed)
+.github/java-upgrade/
+.github/modernize/

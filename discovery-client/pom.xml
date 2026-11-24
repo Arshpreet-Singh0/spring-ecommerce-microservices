@@ -12,6 +12,11 @@
 	<name>discovery-client</name>
 	<description>Discovery Client for E - Commerce</description>
 
+	<properties>
+		<!-- No business code here: excluded from the coverage gate -->
+		<jacoco.skip>true</jacoco.skip>
+	</properties>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
