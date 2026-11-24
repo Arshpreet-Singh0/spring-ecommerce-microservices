@@ -3,9 +3,9 @@ package com.ecommerce.inventory_service.controllers;
 import com.ecommerce.inventory_service.dto.InventoryResponseDTO;
 import com.ecommerce.inventory_service.dto.InventoryUpdateRequest;
 import com.ecommerce.inventory_service.dto.ReserveInventoryDTO;
-import com.ecommerce.inventory_service.entities.InventoryReservation;
-import com.ecommerce.inventory_service.services.InventoryReservationService;
+import com.ecommerce.inventory_service.services.InventoryReservationFacade;
 import com.ecommerce.inventory_service.services.InventoryService;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 public class InventoryController {
 
     private final InventoryService inventoryService;
-    private final InventoryReservationService inventoryReservationService;
+    private final InventoryReservationFacade inventoryReservationFacade;
 
     @GetMapping("/{sku}")
     public ResponseEntity<InventoryResponseDTO> getInventory(@PathVariable  String sku) {
@@ -34,9 +34,9 @@ public class InventoryController {
     }
 
     @PostMapping("/reserve")
-    public ResponseEntity<Void> reserveInventory(@RequestBody ReserveInventoryDTO reserveInventoryDTO) {
+    public ResponseEntity<Void> reserveInventory(@RequestBody @Valid ReserveInventoryDTO reserveInventoryDTO) {
         log.info("Received request to reserve inventory {}", reserveInventoryDTO);
-        inventoryReservationService.reserveInventory(reserveInventoryDTO);
+        inventoryReservationFacade.reserveInventory(reserveInventoryDTO);
         return ResponseEntity.ok().build();
     }
 }
