@@ -53,6 +53,9 @@ public class InventoryService {
                 .orElseThrow(() -> new SkuNotFoundException(request.getSku()));
 
         inventory.setTotalQuantity(request.getQuantity());
+        // The entity only recalculates availableQuantity in @PreUpdate, i.e. at flush/commit, which
+        // is after the event below is built. Recalculate now so the event carries the new value.
+        inventory.setAvailableQuantity(inventory.getTotalQuantity() - inventory.getReservedQuantity());
 
         inventoryRepository.save(inventory);
 
