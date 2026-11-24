@@ -1,8 +1,12 @@
 # Spring E-Commerce Microservices
 
+![CI](https://github.com/Arshpreet-Singh0/spring-ecommerce-microservices/actions/workflows/ci.yml/badge.svg)
+
 An e-commerce backend built as Spring Boot microservices. It has service discovery, an API gateway, JWT auth, Kafka events between services, and Elasticsearch-backed product search.
 
 **Stack:** Java 21 · Spring Boot 4.0 · Spring Cloud 2025.1 (Gateway, Eureka, OpenFeign) · Spring Data JPA / PostgreSQL · Apache Kafka · Elasticsearch 9 · ShedLock · JJWT
+
+**Testing:** JUnit 5 · Mockito · AssertJ · Testcontainers (Postgres, Kafka, Elasticsearch) · Awaitility · JaCoCo coverage gate · GitHub Actions
 
 ---
 
@@ -194,7 +198,7 @@ Example for order-service against the compose infra:
 The repo is a Maven multi-module project with one parent POM. All versions are defined in the root `pom.xml`.
 
 ```bash
-./mvnw -B verify                          # build + test every module
+./mvnw -B verify                          # build + unit tests + Testcontainers ITs + coverage gate
 ./mvnw -pl order-service spring-boot:run  # run ONE service (one terminal per service)
 ```
 
@@ -205,6 +209,33 @@ The repo is a Maven multi-module project with one parent POM. All versions are d
 1. `discovery-client` (Eureka at http://localhost:8761)
 2. `user-service`, `product-service`, `inventory-service`, `order-service`, `search-service`
 3. `api-gateway`
+
+---
+
+## Testing
+
+```bash
+./mvnw -B test                          # unit tests only (Surefire, *Test). No Docker needed.
+./mvnw -B verify                        # + integration tests (Failsafe, *IT) + JaCoCo report and gate. Needs Docker.
+./mvnw -B -pl inventory-service verify  # one module
+```
+
+| Kind | Naming | Runs in | Uses |
+|---|---|---|---|
+| Unit | `*Test` | `mvn test` (Surefire) | JUnit 5, Mockito, AssertJ; `@WebMvcTest` slices for security (401/403) and validation (400) |
+| Integration | `*IT` | `mvn verify` (Failsafe) | Testcontainers: Postgres 17, Kafka 4.1, Elasticsearch 9.2 (`@ServiceConnection`, one container set per module) |
+
+**Coverage gate.** JaCoCo merges unit and integration coverage into one `target/jacoco.exec` per module. `jacoco:check` fails the build if **line coverage of the business packages** (`services`, `schedulers`, `consumer`) drops below **70%** (`jacoco.line.minimum` in the root `pom.xml`). DTOs, entities, config and exceptions aren't counted. `discovery-client` and `api-gateway` have no business code and skip the gate. HTML reports: `<module>/target/site/jacoco/index.html`. CI also posts a per-module table in the job summary.
+
+**No overselling under concurrency.** `InventoryConcurrencyIT` seeds a SKU with 10 units on a real Postgres and fires 50 single-unit reservations at once, released together by a `CountDownLatch`. Exactly 10 succeed and 40 get `InsufficientStockException`; afterwards `reserved_quantity = 10`, `available_quantity = 0` and there are exactly 10 reservation rows. `@Version` on `Inventory` detects the lost updates. `InventoryReservationFacade` retries them (Spring 7 `@Retryable`, up to 4 retries with jittered exponential backoff) **around** the `@Transactional` method, so each attempt re-reads the row in a fresh transaction. A typical run logs 50–60 optimistic-lock retries.
+
+```bash
+# re-run just the concurrency test
+./mvnw -B -pl inventory-service verify -Dit.test=InventoryConcurrencyIT \
+    -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true
+```
+
+**CI.** `.github/workflows/ci.yml` runs `./mvnw -B verify` on every push to `main` and every PR (JDK 21 Temurin, Maven cache). It uploads the JaCoCo HTML reports as an artifact, and the surefire/failsafe reports when the build fails.
 
 ---
 
@@ -222,6 +253,7 @@ search-service/          Elasticsearch indexing/search, Kafka consumer
 infra/postgres/          init script: one database + role per service, ShedLock table
 Dockerfile               one multi-stage image for every module (--build-arg MODULE=...)
 docker-compose.yml       full local stack with healthchecks
+.github/workflows/       CI (build, unit + integration tests, coverage gate)
 ```
 
 ---
@@ -231,4 +263,5 @@ docker-compose.yml       full local stack with healthchecks
 - **Duplicated JWT validation.** Each service has its own `JwtService` / `JwtAuthFilter`. Each service can validate tokens on its own and deploys independently, at the cost of duplicated code. If it grows, the alternative is a small shared `security-common` library, or validating only at the gateway and propagating identity headers.
 - **Duplicated event classes.** Each consumer owns its copy of the event it consumes (e.g. `search_service.event.ProductCreatedEvent`), linked to the producer by a logical type id. Contracts can drift, but no service has to wait for a shared artifact release to deploy. A shared `common-events` module or a schema registry (Avro/Protobuf) is the next step if the number of events grows.
 - **Synchronous order flow.** Order → inventory is a blocking Feign call. A crash between "order saved" and "status updated" can leave an order in `CREATED`. Reservations expire after 5 minutes, so stock isn't lost. An event-driven saga with a transactional outbox will replace this flow.
+- **Every user gets `ROLE_ADMIN`.** `user-service`'s `JwtService` hardcodes `ROLE_ADMIN` + `ROLE_USER` in every access token instead of deriving roles from the user. The 403 tests mint USER-only tokens directly so they don't depend on this. Fixing it is a follow-up.
 - **Schema via `ddl-auto=update`.** Hibernate manages the tables, which is fine for a demo but not for production. Flyway migrations are the next step.
