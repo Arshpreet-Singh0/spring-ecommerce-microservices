@@ -1,0 +1,15 @@
+# Keep the build context small and secret-free
+**/target
+.git
+.github
+.idea
+**/*.iml
+.DS_Store
+docs
+infra
+*.md
+.env
+.env.*
+mvnw
+mvnw.cmd
+.mvn

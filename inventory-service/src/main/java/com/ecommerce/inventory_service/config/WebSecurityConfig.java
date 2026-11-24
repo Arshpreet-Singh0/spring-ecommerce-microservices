@@ -37,7 +37,7 @@ public class WebSecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/inventory/update").hasRole("ADMIN")
-                        .requestMatchers("/inventory/**").permitAll()
+                        .requestMatchers("/inventory/**", "/actuator/health/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

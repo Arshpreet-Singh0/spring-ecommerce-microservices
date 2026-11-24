@@ -19,7 +19,7 @@ flowchart LR
     gw -->|/api/v1/user/**| user[user-service<br/>:9010]
     gw -->|/api/v1/product/**| product[product-service<br/>:9020]
     gw -->|/api/v1/inventory/**| inventory[inventory-service<br/>:9040]
-    gw -->|/api/v1/order/**| order[order-service<br/>:9050]
+    gw -->|/api/v1/orders/**| order[order-service<br/>:9050]
     gw -->|/api/v1/search/**| search[search-service<br/>:9060]
 
     order -- Feign: validate products --> product
@@ -31,10 +31,10 @@ flowchart LR
     inventory -- InventoryUpdated --> k2{{inventory-updated-topic}}
     k2 --> search
 
-    user --- udb[(usersDB)]
-    product --- pdb[(productDB)]
-    inventory --- idb[(inventoryDB)]
-    order --- odb[(orderdb-new)]
+    user --- udb[(user_db)]
+    product --- pdb[(product_db)]
+    inventory --- idb[(inventory_db)]
+    order --- odb[(order_db)]
     search --- es[(Elasticsearch<br/>products index)]
 
     gw -. registers / discovers .-> eureka
@@ -77,10 +77,10 @@ Why the order isn't wrapped in one transaction: [ADR 001](docs/decisions/001-ord
 |---|---|---|---|
 | `discovery-client` | 8761 | Eureka server | — |
 | `api-gateway` | 8080 | Single entry point, path-based routing, tracing | — |
-| `user-service` | 9010 | Signup, login, refresh token, JWT issuing (roles) | PostgreSQL `usersDB` |
-| `product-service` | 9020 | Product catalog CRUD. Publishes `ProductCreated` | PostgreSQL `productDB` |
-| `inventory-service` | 9040 | Stock levels. Reservations with 5-min expiry (`ReservationCleanupScheduler` + ShedLock). `@Version` optimistic locking. Publishes `InventoryUpdated` | PostgreSQL `inventoryDB` |
-| `order-service` | 9050 | Order creation with idempotency key, price/discount validation, inventory reservation | PostgreSQL `orderdb-new` |
+| `user-service` | 9010 | Signup, login, refresh token, JWT issuing (roles) | PostgreSQL `user_db` |
+| `product-service` | 9020 | Product catalog CRUD. Publishes `ProductCreated` | PostgreSQL `product_db` |
+| `inventory-service` | 9040 | Stock levels. Reservations with 5-min expiry (`ReservationCleanupScheduler` + ShedLock). `@Version` optimistic locking. Publishes `InventoryUpdated` | PostgreSQL `inventory_db` |
+| `order-service` | 9050 | Order creation with idempotency key, price/discount validation, inventory reservation | PostgreSQL `order_db` |
 | `search-service` | 9060 | Indexes products from Kafka. Full-text and price-range search | Elasticsearch `products` |
 
 ### Main endpoints (service-local paths)
@@ -106,25 +106,99 @@ Producers write a logical type id in the `__TypeId__` header (`spring.json.type.
 
 ---
 
+## Run with Docker (recommended)
+
+One command starts everything: Postgres (one database and role per service), Kafka in KRaft mode, Elasticsearch, Eureka, the gateway and all services. Each service is built from a single multi-stage [`Dockerfile`](Dockerfile) (`--build-arg MODULE=<service>`) and runs as a non-root user on a JRE-only image.
+
+```bash
+cp .env.example .env          # then put real values in .env (JWT_SECRET must be >= 32 chars)
+docker compose up --build -d
+docker compose ps             # wait until every container is "healthy" (~1-2 min)
+```
+
+Give services ~30s after they turn healthy to register with Eureka. The dashboard is at http://localhost:8761.
+
+| Host port | What |
+|---|---|
+| 8080 | API gateway (the only app entry point) |
+| 8761 | Eureka dashboard |
+| 15432 / 29092 / 19200 | Postgres / Kafka / Elasticsearch, for debugging from the host |
+
+All host ports can be changed in `.env` if they clash with something already running. The full stack needs about 4 GB of RAM: give Docker Desktop at least 6 GB.
+
+### End-to-end flow (all through the gateway)
+
+```bash
+G=http://localhost:8080/api/v1
+J='Content-Type: application/json'
+
+# 1. Sign up and log in
+curl -s -X POST $G/user/signup -H "$J" \
+  -d '{"name":"Demo User","email":"demo@example.com","password":"Passw0rd!"}'
+TOKEN=$(curl -s -X POST $G/user/login -H "$J" \
+  -d '{"email":"demo@example.com","password":"Passw0rd!"}' | jq -r '.data.accessToken')
+
+# 2. Create a product. product-service publishes ProductCreated to Kafka.
+curl -s -X POST $G/product -H "$J" -H "Authorization: Bearer $TOKEN" -d '{
+  "name":"Trail Running Shoe","description":"Lightweight trail shoe","sku":"SHOE-TRAIL-01",
+  "price":120.00,"discountPercent":10,"currency":"USD","category":"footwear","brand":"Acme",
+  "totalQuantity":5,"imageUrls":["https://example.com/shoe.jpg"]}'
+
+# 3. Kafka consumers created the inventory row and the search document
+curl -s $G/inventory/SHOE-TRAIL-01
+curl -s "$G/search/products?keyword=trail&page=0&size=10"
+
+# 4. Place an order (idempotent: re-sending the same key returns the same order)
+curl -s -X POST $G/orders -H "$J" -H "Authorization: Bearer $TOKEN" \
+  -d '{"idempotencyKey":"order-001","items":[{"productId":1,"quantity":2,"price":108.00}]}'
+# -> status PAYMENT_PENDING, total 216.00 (10% discount applied). Inventory now reserved=2, available=3.
+```
+
+Try the failure path from [ADR 001](docs/decisions/001-order-failure-state.md):
+
+```bash
+docker compose stop inventory-service
+curl -s -X POST $G/orders -H "$J" -H "Authorization: Bearer $TOKEN" \
+  -d '{"idempotencyKey":"order-002","items":[{"productId":1,"quantity":1}]}'   # 503, order saved as FAILED
+docker compose start inventory-service    # wait until healthy + ~30s
+# re-send the same request -> same order id, now PAYMENT_PENDING
+```
+
+Useful commands: `docker compose logs -f order-service`, `docker compose --profile tracing up -d` (adds Zipkin on :9411, then set `TRACING_EXPORT_ENABLED=true`), `docker compose down -v` (stop and wipe all data).
+
+---
+
 ## Running locally
 
 ### Prerequisites
 
 - JDK 21
-- PostgreSQL on `localhost:5432`, with databases `usersDB`, `productDB`, `inventoryDB`, `orderdb-new`
-- Kafka on `localhost:9092`
-- Elasticsearch on `localhost:9200`, with security disabled for local dev
+- PostgreSQL, Kafka and Elasticsearch. The easiest way is to start just the infra from compose: `docker compose up -d postgres kafka elasticsearch`
+- Environment variables. Every setting has a `localhost` default **except secrets**:
 
-> Docker Compose for the whole stack is coming in Task 2.
+| Variable | Default | Used by |
+|---|---|---|
+| `DB_URL` | `jdbc:postgresql://localhost:5432/<service>_db` | user, product, inventory, order |
+| `DB_USERNAME` | `<service>_svc` | user, product, inventory, order |
+| `DB_PASSWORD` | *(none, required)* | user, product, inventory, order |
+| `JWT_SECRET` | *(none, required, >= 32 chars)* | user, product, inventory, order |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | product, inventory, search |
+| `ELASTICSEARCH_URIS` | `http://localhost:9200` | search |
+| `EUREKA_URL` | `http://localhost:8761/eureka` | all clients |
+
+Example for order-service against the compose infra:
+`DB_URL=jdbc:postgresql://localhost:15432/order_db DB_PASSWORD=... JWT_SECRET=... ./mvnw -pl order-service spring-boot:run`
 
 ### Build
 
 The repo is a Maven multi-module project with one parent POM. All versions are defined in the root `pom.xml`.
 
 ```bash
-./mvnw -B verify            # build + test every module
-./mvnw -pl order-service -am spring-boot:run   # run a single service
+./mvnw -B verify                          # build + test every module
+./mvnw -pl order-service spring-boot:run  # run ONE service (one terminal per service)
 ```
+
+> Don't run `spring-boot:run` from the root without `-pl <module>`. The root POM is only a parent and has no main class.
 
 ### Start order
 
@@ -145,7 +219,9 @@ product-service/         catalog, Kafka producer
 inventory-service/       stock + reservations, Kafka producer/consumer
 order-service/           orders, Feign clients
 search-service/          Elasticsearch indexing/search, Kafka consumer
-docs/decisions/          architecture decision records (ADRs)
+infra/postgres/          init script: one database + role per service, ShedLock table
+Dockerfile               one multi-stage image for every module (--build-arg MODULE=...)
+docker-compose.yml       full local stack with healthchecks
 ```
 
 ---
@@ -155,8 +231,4 @@ docs/decisions/          architecture decision records (ADRs)
 - **Duplicated JWT validation.** Each service has its own `JwtService` / `JwtAuthFilter`. Each service can validate tokens on its own and deploys independently, at the cost of duplicated code. If it grows, the alternative is a small shared `security-common` library, or validating only at the gateway and propagating identity headers.
 - **Duplicated event classes.** Each consumer owns its copy of the event it consumes (e.g. `search_service.event.ProductCreatedEvent`), linked to the producer by a logical type id. Contracts can drift, but no service has to wait for a shared artifact release to deploy. A shared `common-events` module or a schema registry (Avro/Protobuf) is the next step if the number of events grows.
 - **Synchronous order flow.** Order → inventory is a blocking Feign call. A crash between "order saved" and "status updated" can leave an order in `CREATED`. Reservations expire after 5 minutes, so stock isn't lost. An event-driven saga with a transactional outbox will replace this flow.
-- **Secrets in config.** Local DB credentials and the JWT secret are currently in `application.properties`. They will be moved to environment variables.
-
-## Known issues
-
-- Gateway route `/api/v1/order/**` maps to `/order/**`, but order-service listens on `/orders`. Call order-service directly (`:9050/orders`) until the route is fixed.
+- **Schema via `ddl-auto=update`.** Hibernate manages the tables, which is fine for a demo but not for production. Flyway migrations are the next step.

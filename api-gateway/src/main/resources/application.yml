@@ -1,6 +1,3 @@
-jwt:
-  secretKey : dfihhuawffiubeiwbwiywiusbciwdw
-
 spring:
   application:
     name: api-gateway
@@ -36,11 +33,30 @@ spring:
             - id: order-service
               uri: lb://ORDER-SERVICE
               predicates:
-                - Path=/api/v1/order/**
+                # order-service controller is mapped to /orders
+                - Path=/api/v1/orders/**
               filters:
                 - StripPrefix=2
+
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    export:
+      # Off unless a Zipkin is running (docker compose --profile tracing up)
+      enabled: ${TRACING_EXPORT_ENABLED:false}
+      zipkin:
+        endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}

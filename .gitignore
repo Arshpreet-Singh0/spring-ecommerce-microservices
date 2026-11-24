@@ -10,3 +10,6 @@ target/
 
 # Spring Initializr leftovers
 HELP.md
+
+# Local secrets (copy .env.example to .env)
+.env

@@ -38,7 +38,7 @@ public class WebSecurityConfig {
                         .accessDeniedHandler(jwtAccessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/product/get").permitAll()
+                        .requestMatchers("/product/get", "/actuator/health/**").permitAll()
                         .requestMatchers("/product").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

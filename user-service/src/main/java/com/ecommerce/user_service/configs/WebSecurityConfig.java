@@ -25,7 +25,8 @@ public class WebSecurityConfig {
                                 "/user/signup",
                                 "/user/login",
                                 "/user/refresh",
-                                "/user/error"
+                                "/user/error",
+                                "/actuator/health/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
